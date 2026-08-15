@@ -16,7 +16,15 @@ classifiers = [
 ]
 dynamic = ["version"]
 
-dependencies = ["pyccl"]
+dependencies = [
+    "pyccl",
+    "click", # Used by the raruma command line interface
+    "pz-rail-sklearn", # Provides the k_nearneigh informer and estimator the CLI defaults to
+    "pz-rail-projects", # Provides the official SITCOMTN-154 Fig. 9 plotters the plots can toggle to
+]
+
+[project.scripts]
+raruma = "rail.cli.raruma.commands:cli"
 
 # On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
 [project.optional-dependencies]
