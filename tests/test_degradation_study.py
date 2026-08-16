@@ -101,16 +101,20 @@ def test_run_degradation_study_end_to_end(tmp_path) -> None:
     noise_grid = np.array([0.01, 0.1, 0.5])
     stage_kwargs = {"hdf5_groupname": "", "zmin": 0.0, "zmax": 4.0, "nzbins": 101}
 
+    spec = uncertainty_functions.EstimatorSpec(
+        informer_class=TrainZInformer,
+        estimator_class=TrainZEstimator,
+        z_grid=z_grid,
+        informer_kwargs=stage_kwargs,
+        estimator_kwargs={"hdf5_groupname": ""},
+    )
+    plan = uncertainty_functions.DegradationPlan(noise_grid=noise_grid, seed=SEED)
+
     estimates, uncertainties, metadata = uncertainty_functions.run_degradation_study(
         data,
         data,
-        z_grid,
-        TrainZInformer,
-        TrainZEstimator,
-        informer_kwargs=stage_kwargs,
-        estimator_kwargs={"hdf5_groupname": ""},
-        noise_grid=noise_grid,
-        seed=SEED,
+        spec,
+        plan,
         output_dir=str(tmp_path),
     )
 
@@ -141,13 +145,8 @@ def test_run_degradation_study_end_to_end(tmp_path) -> None:
     _est2, _unc2, metadata2 = uncertainty_functions.run_degradation_study(
         data,
         data,
-        z_grid,
-        TrainZInformer,
-        TrainZEstimator,
-        informer_kwargs=stage_kwargs,
-        estimator_kwargs={"hdf5_groupname": ""},
-        noise_grid=noise_grid,
-        seed=SEED,
+        spec,
+        plan,
         output_dir=str(tmp_path / "repeat"),
     )
     np.testing.assert_array_equal(
@@ -161,8 +160,6 @@ def test_run_degradation_study_rejects_unknown_type() -> None:
         uncertainty_functions.run_degradation_study(
             {"redshift": np.array([0.5])},
             {"redshift": np.array([0.5])},
-            np.linspace(0, 4, 11),
-            None,
-            None,
-            degradation_types=("not_a_type",),
+            uncertainty_functions.EstimatorSpec(None, None, np.linspace(0, 4, 11)),
+            uncertainty_functions.DegradationPlan(degradation_types=("not_a_type",)),
         )

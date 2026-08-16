@@ -49,25 +49,26 @@ def smear_data(
 
     Parameters
     ----------
-    input_dict:
+    input_dict : Tablelike
         Input data (dict from ``tables_io.read``)
 
-    noise_levels:
+    noise_levels : float | np.ndarray
         Scalar for uniform noise, or array of length n_galaxies
         for per-galaxy noise (in mags)
 
-    seed:
+    seed : int | None
         Random number seed
 
-    mag_template:
+    mag_template : str
         Template for the magnitude column names
 
-    bands:
+    bands : str
         Bands to smear
 
     Returns
     -------
-    New dict with noisy magnitudes; the input is not modified
+    Tablelike
+        New dict with noisy magnitudes; the input is not modified
     """
     # Extract magnitude columns into 2D array (n_galaxies, n_bands)
     train_features = raruma_util.get_band_values(input_dict, mag_template, bands)
@@ -117,25 +118,26 @@ def create_mixed_noise_data(
 
     Parameters
     ----------
-    data:
+    data : Tablelike
         Input data (dict from ``tables_io.read``)
 
-    noise_levels:
+    noise_levels : np.ndarray
         Array of noise values to draw from (in mags)
 
-    seed:
+    seed : int | None
         Random number seed
 
-    mag_template:
+    mag_template : str
         Template for the magnitude column names
 
-    bands:
+    bands : str
         Bands to smear
 
     Returns
     -------
-    New dict with heterogeneous noise applied, and the array of
-    per-galaxy noise levels
+    tuple[Tablelike, np.ndarray]
+        New dict with heterogeneous noise applied, and the array of
+        per-galaxy noise levels
     """
     n_galaxies = len(data["redshift"])
     n_levels = len(noise_levels)
@@ -168,24 +170,25 @@ def degrade_magnitude_uniform(
 
     Parameters
     ----------
-    input_dict:
+    input_dict : Tablelike
         Input data (dict from ``tables_io.read``)
 
-    noise_level:
+    noise_level : float
         Gaussian noise level applied to every galaxy (in mags)
 
-    seed:
+    seed : int | None
         Random number seed
 
-    mag_template:
+    mag_template : str
         Template for the magnitude column names
 
-    bands:
+    bands : str
         Bands to smear
 
     Returns
     -------
-    Degraded copy of the data, and an (empty) metadata dict
+    tuple[Tablelike, dict]
+        Degraded copy of the data, and an (empty) metadata dict
     """
     return smear_data(input_dict, noise_level, seed=seed, mag_template=mag_template, bands=bands), {}
 
@@ -202,25 +205,26 @@ def degrade_magnitude_mixed(
 
     Parameters
     ----------
-    input_dict:
+    input_dict : Tablelike
         Input data (dict from ``tables_io.read``)
 
-    noise_levels:
+    noise_levels : np.ndarray
         Array of noise values randomly assigned per galaxy (in mags)
 
-    seed:
+    seed : int | None
         Random number seed
 
-    mag_template:
+    mag_template : str
         Template for the magnitude column names
 
-    bands:
+    bands : str
         Bands to smear
 
     Returns
     -------
-    Degraded copy of the data, and metadata with the
-    ``per_galaxy_noise`` array
+    tuple[Tablelike, dict]
+        Degraded copy of the data, and metadata with the
+        ``per_galaxy_noise`` array
     """
     output_dict, per_galaxy_noise = create_mixed_noise_data(
         input_dict, noise_levels, seed=seed, mag_template=mag_template, bands=bands
@@ -238,19 +242,20 @@ def degrade_redshift_random(
 
     Parameters
     ----------
-    input_dict:
+    input_dict : Tablelike
         Input data (dict from ``tables_io.read``)
 
-    frac:
+    frac : float
         Fraction of galaxies to degrade
 
-    seed:
+    seed : int | None
         Random number seed
 
     Returns
     -------
-    Degraded copy of the data, and metadata with the
-    ``degrade_indices`` array
+    tuple[Tablelike, dict]
+        Degraded copy of the data, and metadata with the
+        ``degrade_indices`` array
     """
     if seed is not None:
         np.random.seed(seed)
@@ -282,26 +287,27 @@ def degrade_redshift_break(
 
     Parameters
     ----------
-    input_dict:
+    input_dict : Tablelike
         Input data (dict from ``tables_io.read``)
 
-    frac:
+    frac : float
         Fraction of eligible faint galaxies to degrade
 
-    mag_cutoff:
+    mag_cutoff : float
         i-band magnitude above which galaxies are eligible
 
-    seed:
+    seed : int | None
         Random number seed
 
-    mag_template:
+    mag_template : str
         Template for the magnitude column names
 
     Returns
     -------
-    Degraded copy of the data, and metadata with ``degrade_indices``,
-    ``n_faint`` (number of eligible galaxies), and ``zmin`` (the
-    positivity threshold)
+    tuple[Tablelike, dict]
+        Degraded copy of the data, and metadata with ``degrade_indices``,
+        ``n_faint`` (number of eligible galaxies), and ``zmin`` (the
+        positivity threshold)
     """
     if seed is not None:
         np.random.seed(seed)
@@ -355,14 +361,14 @@ def degrade_data(
 
     Parameters
     ----------
-    input_dict:
+    input_dict : Tablelike
         Input data (dict from ``tables_io.read``)
 
-    degradation_type:
+    degradation_type : str
         One of the keys of ``DEGRADATION_FUNCS``: 'magnitude_uniform',
         'magnitude_mixed', 'redshift_random', 'redshift_break'
 
-    **params:
+    **params : object
         Degradation-specific parameters:
         for magnitude_uniform: noise_level (scalar);
         for magnitude_mixed: noise_levels (array);
@@ -372,8 +378,9 @@ def degrade_data(
 
     Returns
     -------
-    Modified copy with degraded data (original unchanged), and a
-    metadata dict describing what was degraded
+    tuple[Tablelike, dict]
+        Modified copy with degraded data (original unchanged), and a
+        metadata dict describing what was degraded
     """
     try:
         degradation_func = DEGRADATION_FUNCS[degradation_type]

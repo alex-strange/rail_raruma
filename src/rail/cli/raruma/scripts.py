@@ -2,18 +2,21 @@
 
 Kept separate from the click wiring (rail_base's commands/scripts
 split) so the same entry points stay importable and testable without a
-terminal.
+terminal.  The command line's flat options arrive here grouped as a
+``StudySettings``, built by ``StudySettings.from_cli``.
 """
 
+import ast
 import importlib
 import json
 import os
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import tables_io
 from matplotlib import pyplot as plt
 
-from rail.raruma import degradation_functions as raruma_degrade
 from rail.raruma import uncertainty_functions as raruma_unc
 from rail.raruma import uncertainty_plotting_functions as raruma_uplot
 from rail.utils import catalog_utils
@@ -44,15 +47,14 @@ def parse_stage_params(param_strings: tuple[str, ...]) -> dict:
 
     Parameters
     ----------
-    param_strings:
+    param_strings : tuple[str, ...]
         The 'key=value' strings from the command line
 
     Returns
     -------
-    Parsed configuration dict
+    dict
+        Parsed configuration dict
     """
-    import ast
-
     parsed = {}
     for param_string in param_strings:
         key, separator, raw_value = param_string.partition("=")
@@ -73,13 +75,14 @@ def import_class(class_path: str) -> type:
 
     Parameters
     ----------
-    class_path:
+    class_path : str
         Full import path, e.g.
         'rail.estimation.algos.k_nearneigh.KNearNeighInformer'
 
     Returns
     -------
-    The imported class
+    type
+        The imported class
     """
     module_path, _, class_name = class_path.rpartition(".")
     if not module_path:
@@ -93,7 +96,7 @@ def apply_catalog_tag(catalog_tag: str) -> None:
 
     Parameters
     ----------
-    catalog_tag:
+    catalog_tag : str
         Tag name, e.g. 'com_cam_gaap'; empty or None skips
     """
     if not catalog_tag:
@@ -117,34 +120,166 @@ def _summary_ready(value):
     return value
 
 
-def run_study(
-    train_file: str,
-    test_file: str,
-    outdir: str,
-    catalog_tag: str,
-    informer_class: str,
-    estimator_class: str,
-    informer_param: tuple[str, ...],
-    estimator_param: tuple[str, ...],
-    degradation_types: tuple[str, ...],
-    noise_grid_start: float,
-    noise_grid_stop: float,
-    noise_grid_n: int,
-    z_grid_max: float,
-    z_grid_n: int,
-    stats_z_max: float,
-    stats_n_bins: int,
-    frac: float,
-    mag_cutoff: float,
-    use_rail_stats: bool,
-    seed: int | None,
-    n_select: int,
-    deviation_threshold: float,
-    plot_name_template: str,
-    mag_template: str,
-    bands: str,
-    ref_band: str,
-) -> int:
+@dataclass
+class StudyDataOptions:
+    """Where the study reads its data and writes its results"""
+
+    train_file: str
+    test_file: str
+    outdir: str
+    catalog_tag: str
+
+
+@dataclass
+class StudyStageOptions:
+    """Which RAIL stages the study trains, and how they are configured"""
+
+    informer_class: str
+    estimator_class: str
+    informer_param: tuple[str, ...]
+    estimator_param: tuple[str, ...]
+
+
+@dataclass
+class StudyGridOptions:
+    """The noise, redshift and statistics grids the study sweeps"""
+
+    noise_grid_start: float
+    noise_grid_stop: float
+    noise_grid_n: int
+    z_grid_max: float
+    z_grid_n: int
+    stats_z_max: float
+    stats_n_bins: int
+
+
+@dataclass
+class StudyCaseOptions:
+    """Which degradation cases run, and the parameters they degrade with"""
+
+    degradation_types: tuple[str, ...]
+    frac: float
+    mag_cutoff: float
+    seed: int | None
+
+
+@dataclass
+class StudyPlotOptions:
+    """What gets plotted, by whom, and under what file names"""
+
+    use_rail_stats: bool
+    n_select: int
+    deviation_threshold: float
+    plot_name_template: str
+
+
+@dataclass
+class StudyColumnOptions:
+    """The photometry column names the study reads"""
+
+    mag_template: str
+    bands: str
+    ref_band: str
+
+
+@dataclass
+class StudySettings:
+    """Everything one ``raruma study run`` invocation needs
+
+    The command line supplies two dozen flat options; grouping them here
+    keeps every function that carries them down to a handful of
+    arguments, and puts each option beside the ones it works with.
+
+    Attributes
+    ----------
+    data : StudyDataOptions
+        Where the study reads its data and writes its results
+
+    stages : StudyStageOptions
+        Which RAIL stages the study trains
+
+    grids : StudyGridOptions
+        The noise, redshift and statistics grids
+
+    cases : StudyCaseOptions
+        Which degradation cases run, and with what parameters
+
+    plots : StudyPlotOptions
+        What gets plotted and under what file names
+
+    columns : StudyColumnOptions
+        The photometry column names the study reads
+    """
+
+    data: StudyDataOptions
+    stages: StudyStageOptions
+    grids: StudyGridOptions
+    cases: StudyCaseOptions
+    plots: StudyPlotOptions
+    columns: StudyColumnOptions
+
+    @classmethod
+    def from_cli(cls, **kwargs: Any) -> "StudySettings":
+        """Group the command line's flat options into these six
+
+        Parameters
+        ----------
+        kwargs : Any
+            One entry per ``raruma study run`` option, named as click
+            passes it; a missing or unexpected name raises here rather
+            than part way into a study
+
+        Returns
+        -------
+        StudySettings
+            The same options, grouped
+        """
+        settings = cls(
+            data=StudyDataOptions(
+                train_file=kwargs.pop("train_file"),
+                test_file=kwargs.pop("test_file"),
+                outdir=kwargs.pop("outdir"),
+                catalog_tag=kwargs.pop("catalog_tag"),
+            ),
+            stages=StudyStageOptions(
+                informer_class=kwargs.pop("informer_class"),
+                estimator_class=kwargs.pop("estimator_class"),
+                informer_param=kwargs.pop("informer_param"),
+                estimator_param=kwargs.pop("estimator_param"),
+            ),
+            grids=StudyGridOptions(
+                noise_grid_start=kwargs.pop("noise_grid_start"),
+                noise_grid_stop=kwargs.pop("noise_grid_stop"),
+                noise_grid_n=kwargs.pop("noise_grid_n"),
+                z_grid_max=kwargs.pop("z_grid_max"),
+                z_grid_n=kwargs.pop("z_grid_n"),
+                stats_z_max=kwargs.pop("stats_z_max"),
+                stats_n_bins=kwargs.pop("stats_n_bins"),
+            ),
+            cases=StudyCaseOptions(
+                degradation_types=kwargs.pop("degradation_types"),
+                frac=kwargs.pop("frac"),
+                mag_cutoff=kwargs.pop("mag_cutoff"),
+                seed=kwargs.pop("seed"),
+            ),
+            plots=StudyPlotOptions(
+                use_rail_stats=kwargs.pop("use_rail_stats"),
+                n_select=kwargs.pop("n_select"),
+                deviation_threshold=kwargs.pop("deviation_threshold"),
+                plot_name_template=kwargs.pop("plot_name_template"),
+            ),
+            columns=StudyColumnOptions(
+                mag_template=kwargs.pop("mag_template"),
+                bands=kwargs.pop("bands"),
+                ref_band=kwargs.pop("ref_band"),
+            ),
+        )
+        if kwargs:
+            raise TypeError(f"Not options of a raruma study: {sorted(kwargs)}")
+        return settings
+
+
+def run_study(settings: StudySettings) -> int:
     """Run a full degradation study and save all plots
 
     Trains a baseline model plus one model per requested degradation
@@ -153,45 +288,81 @@ def run_study(
     levels automatically, and writes every plot with the systematic
     naming convention plus a machine-readable summary json.
 
+    The three Fig. 9 plots come from the official RAIL plotters, which
+    draw their own titles.  ``--no-use-rail-stats`` swaps the statistics
+    panel for the library's own drawing, computed with plain numpy
+    statistics and carrying the case title.
+
+    Parameters
+    ----------
+    settings : StudySettings
+        Every option the study runs with, grouped into data, stages,
+        grids, cases, plots and columns; the command line builds it with
+        ``StudySettings.from_cli``
+
     Returns
     -------
-    0 on success
+    int
+        0 on success
     """
+    data, stages, grids = settings.data, settings.stages, settings.grids
+    cases, plots, columns = settings.cases, settings.plots, settings.columns
+    outdir = data.outdir
     os.makedirs(outdir, exist_ok=True)
-    apply_catalog_tag(catalog_tag)
+    apply_catalog_tag(data.catalog_tag)
 
-    train_data = tables_io.read(train_file)
-    test_data = tables_io.read(test_file)
+    train_data = tables_io.read(data.train_file)
+    test_data = tables_io.read(data.test_file)
 
-    z_grid = np.linspace(0.0, z_grid_max, z_grid_n)
-    noise_grid = np.logspace(noise_grid_start, noise_grid_stop, noise_grid_n)
-    stats_z_bins = np.linspace(0.0, stats_z_max, stats_n_bins + 1)
+    z_grid = np.linspace(0.0, grids.z_grid_max, grids.z_grid_n)
+    noise_grid = np.logspace(grids.noise_grid_start, grids.noise_grid_stop, grids.noise_grid_n)
+    stats_z_bins = np.linspace(0.0, grids.stats_z_max, grids.stats_n_bins + 1)
 
+    mag_template = columns.mag_template
     degradation_params = {
-        "magnitude_uniform": {"mag_template": mag_template, "bands": bands},
-        "magnitude_mixed": {"mag_template": mag_template, "bands": bands},
-        "redshift_random": {"frac": frac},
-        "redshift_break": {"frac": frac, "mag_cutoff": mag_cutoff, "mag_template": mag_template},
+        "magnitude_uniform": {"mag_template": mag_template, "bands": columns.bands},
+        "magnitude_mixed": {"mag_template": mag_template, "bands": columns.bands},
+        "redshift_random": {"frac": cases.frac},
+        "redshift_break": {
+            "frac": cases.frac,
+            "mag_cutoff": cases.mag_cutoff,
+            "mag_template": mag_template,
+        },
     }
 
+    degradation_types = cases.degradation_types
     print(f"Running degradation study: baseline + {list(degradation_types)}")
     estimates, uncertainties, _metadata = raruma_unc.run_degradation_study(
         train_data,
         test_data,
-        z_grid,
-        import_class(informer_class),
-        import_class(estimator_class),
-        informer_kwargs=parse_stage_params(informer_param),
-        estimator_kwargs=parse_stage_params(estimator_param),
-        degradation_types=degradation_types,
-        noise_grid=noise_grid,
-        degradation_params=degradation_params,
-        seed=seed,
+        raruma_unc.EstimatorSpec(
+            informer_class=import_class(stages.informer_class),
+            estimator_class=import_class(stages.estimator_class),
+            z_grid=z_grid,
+            informer_kwargs=parse_stage_params(stages.informer_param),
+            estimator_kwargs=parse_stage_params(stages.estimator_param),
+        ),
+        raruma_unc.DegradationPlan(
+            degradation_types=degradation_types,
+            noise_grid=noise_grid,
+            degradation_params=degradation_params,
+            seed=cases.seed,
+        ),
         output_dir=outdir,
     )
 
-    reference_magnitudes = test_data[mag_template.format(band=ref_band)]
+    reference_magnitudes = test_data[mag_template.format(band=columns.ref_band)]
     saved_plots = []
+
+    def statistics_figure(z_true: np.ndarray, z_est: np.ndarray, title: str):
+        """The official statistics panel, or the library's own drawing"""
+        if plots.use_rail_stats:
+            return raruma_uplot.plot_statistics_vs_redshift_rail(
+                z_true, z_est, z_bins=stats_z_bins
+            )
+        return raruma_uplot.plot_statistics_vs_redshift(
+            z_true, z_est, z_bins=stats_z_bins, use_rail_stats=False, title=title
+        )
 
     def save_case_plots(case_label: str, estimate, param_name: str, param_value) -> None:
         z_est = np.asarray(estimate.data.ancil["zmode"]).flatten()
@@ -202,32 +373,23 @@ def run_study(
         for plot_type, figure in (
             (
                 "true_vs_est",
-                raruma_uplot.plot_true_vs_estimated(
-                    z_true, z_est, title=f"True Z vs. Est. Z ({title})", z_max=stats_z_max
+                raruma_uplot.plot_true_vs_estimated_rail(
+                    z_true, z_est, z_max=grids.stats_z_max
                 ),
             ),
             (
                 "statistics",
-                raruma_uplot.plot_statistics_vs_redshift(
-                    z_true,
-                    z_est,
-                    z_bins=stats_z_bins,
-                    use_rail_stats=use_rail_stats,
-                    title=f"Statistics vs Redshift ({title})",
-                ),
+                statistics_figure(z_true, z_est, f"Statistics vs Redshift ({title})"),
             ),
             (
                 "residuals",
-                raruma_uplot.plot_residuals_vs_magnitude(
-                    reference_magnitudes,
-                    z_true,
-                    z_est,
-                    title=f"Residuals vs Magnitude ({title})",
+                raruma_uplot.plot_residuals_vs_magnitude_rail(
+                    reference_magnitudes, z_true, z_est
                 ),
             ),
         ):
             filename = raruma_uplot.plot_filename(
-                plot_type, param_name, param_value, template=plot_name_template
+                plot_type, param_name, param_value, template=plots.plot_name_template
             )
             saved_plots.append(_save_figure(figure, outdir, filename))
 
@@ -240,27 +402,35 @@ def run_study(
     # The per-noise-level case: ratio curve, automatic level selection,
     # then one plot set per selected level
     summary: dict = {
-        "train_file": train_file,
-        "test_file": test_file,
+        "train_file": data.train_file,
+        "test_file": data.test_file,
         "degradation_types": list(degradation_types),
-        "seed": seed,
-        "use_rail_stats": use_rail_stats,
+        "seed": cases.seed,
+        "use_rail_stats": plots.use_rail_stats,
         "baseline_median_uncertainty": float(np.median(uncertainties["baseline"])),
     }
     if "magnitude_uniform" in degradation_types:
         noise_levels, ratios = raruma_unc.compute_uncertainty_ratios(uncertainties)
         selected_levels = raruma_unc.select_interesting_noise_levels(
-            noise_levels, ratios, n_select=n_select, deviation_threshold=deviation_threshold
+            noise_levels,
+            ratios,
+            n_select=plots.n_select,
+            deviation_threshold=plots.deviation_threshold,
         )
         figure = raruma_uplot.plot_uncertainty_ratio_vs_noise(
             noise_levels, ratios, selected_levels=selected_levels
         )
         filename = raruma_uplot.plot_filename(
-            "uncertainty_ratio", "degradation", "magnitude_uniform", template=plot_name_template
+            "uncertainty_ratio",
+            "degradation",
+            "magnitude_uniform",
+            template=plots.plot_name_template,
         )
         saved_plots.append(_save_figure(figure, outdir, filename))
         for noise in selected_levels:
-            save_case_plots("magnitude_uniform", estimates["magnitude_uniform"][noise], "noise", float(noise))
+            save_case_plots(
+                "magnitude_uniform", estimates["magnitude_uniform"][noise], "noise", float(noise)
+            )
         summary["noise_levels"] = _summary_ready(noise_levels)
         summary["uncertainty_ratios"] = _summary_ready(ratios)
         summary["selected_noise_levels"] = _summary_ready(selected_levels)

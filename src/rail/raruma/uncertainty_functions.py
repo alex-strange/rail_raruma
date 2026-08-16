@@ -15,9 +15,11 @@ tails that drag a plain mean/std away from the core of the distribution.
 """
 
 import os
+from dataclasses import dataclass
 
 import numpy as np
 import qp
+from rail.core.data import DataStore
 from rail.core.stage import RailStage
 
 from . import degradation_functions as raruma_degrade
@@ -44,8 +46,6 @@ def reset_data_store() -> None:
     previous run's data; newer versions give each stage its own store.
     This helper makes repeated in-memory train/test cycles safe on both.
     """
-    from rail.core.data import DataStore
-
     DataStore.allow_overwrite = True
     data_store = getattr(RailStage, "data_store", None)
     if data_store is not None:
@@ -57,15 +57,16 @@ def calc_std(qp_dstn: qp.Ensemble, grid: np.ndarray) -> np.ndarray:
 
     Parameters
     ----------
-    qp_dstn:
+    qp_dstn : qp.Ensemble
         qp Ensemble of per-galaxy redshift PDFs
 
-    grid:
+    grid : np.ndarray
         Redshift grid on which to evaluate the PDFs
 
     Returns
     -------
-    Standard deviation for each PDF, shape (n_galaxies, 1)
+    np.ndarray
+        Standard deviation for each PDF, shape (n_galaxies, 1)
     """
     pdfs = qp_dstn.pdf(grid)  # Get PDF values on grid
     norms = pdfs.sum(axis=1)  # Normalize
@@ -86,16 +87,16 @@ def calc_binned_metrics(
 
     Parameters
     ----------
-    z_spec:
+    z_spec : np.ndarray
         Spectroscopic (true) redshifts
 
-    z_phot:
+    z_phot : np.ndarray
         Estimated redshifts
 
-    z_bins:
+    z_bins : np.ndarray
         Bin edges for spectroscopic redshift
 
-    use_rail_stats:
+    use_rail_stats : bool
         If True (default), bias and sigma are the astropy biweight
         location and scale of each bin after iterative sigma clipping
         (the robust pattern RAIL's pz_plotters uses); if False, plain
@@ -106,8 +107,9 @@ def calc_binned_metrics(
 
     Returns
     -------
-    bin_centers, sigma_array, bias_array, outlier_rate_array
-    (empty bins hold NaN)
+    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+        bin_centers, sigma_array, bias_array, outlier_rate_array
+        (empty bins hold NaN)
     """
     # Calculate normalized residuals
     delta_z = (z_phot - z_spec) / (1 + z_spec)
@@ -155,19 +157,20 @@ def calc_photoz_performance_metrics(
 
     Parameters
     ----------
-    estimate_handle:
+    estimate_handle : QPHandle
         Output handle from ``train_test_uncertainty``; its ancillary
         data must carry 'redshift' (true) and 'zmode' (estimate)
 
-    z_bins:
+    z_bins : np.ndarray
         Bin edges for spectroscopic redshift
 
-    use_rail_stats:
+    use_rail_stats : bool
         Statistics mode, see ``calc_binned_metrics``
 
     Returns
     -------
-    bin_centers, sigma_array, bias_array, outlier_rate_array
+    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+        bin_centers, sigma_array, bias_array, outlier_rate_array
     """
     # Extract redshifts
     z_spec = estimate_handle.data.ancil["redshift"]
@@ -184,40 +187,41 @@ def train_test_uncertainty(
     informer_kwargs: dict | None = None,
     estimator_kwargs: dict | None = None,
     label: str = "output",
-):
+):  # pylint: disable=too-many-arguments,too-many-positional-arguments  # every argument used
     """Train a model, test it, and extract uncertainty for any algorithm
 
     Parameters
     ----------
-    train_data:
+    train_data : Tablelike
         Training data (dict from ``tables_io.read``)
 
-    test_data:
+    test_data : Tablelike
         Test data (dict from ``tables_io.read``)
 
-    z_grid:
+    z_grid : np.ndarray
         Redshift grid for PDF evaluation
 
-    informer_class:
+    informer_class : type
         RAIL informer, e.g. ``KNearNeighInformer``
 
-    estimator_class:
+    estimator_class : type
         RAIL estimator, e.g. ``KNearNeighEstimator``
 
-    informer_kwargs:
+    informer_kwargs : dict | None
         Parameters for the informer stage
 
-    estimator_kwargs:
+    estimator_kwargs : dict | None
         Parameters for the estimator stage
 
-    label:
+    label : str
         Identifier for the output files ``<label>_model.pkl`` and
         ``<label>_output.hdf5``; may include a directory prefix
 
     Returns
     -------
-    Uncertainty array of shape (n_test_galaxies, 1), and the estimate
-    handle
+    tuple[np.ndarray, QPHandle]
+        Uncertainty array of shape (n_test_galaxies, 1), and the estimate
+        handle
     """
     if informer_kwargs is None:
         informer_kwargs = {}
@@ -261,17 +265,18 @@ def compute_uncertainty_ratios(
 
     Parameters
     ----------
-    uncertainties:
+    uncertainties : dict
         Uncertainty dict from ``run_degradation_study``; must hold
         'baseline' and a ``case`` entry keyed by noise level
 
-    case:
+    case : str
         Which noise-level-keyed case to ratio against baseline
 
     Returns
     -------
-    Noise levels (ascending) and the median per-galaxy ratio of that
-    level's uncertainty to the baseline uncertainty
+    tuple[np.ndarray, np.ndarray]
+        Noise levels (ascending) and the median per-galaxy ratio of that
+        level's uncertainty to the baseline uncertainty
     """
     if "baseline" not in uncertainties or case not in uncertainties:
         raise KeyError(
@@ -305,22 +310,23 @@ def select_interesting_noise_levels(
 
     Parameters
     ----------
-    noise_levels:
+    noise_levels : np.ndarray
         Noise levels, one per trained model
 
-    uncertainty_ratios:
+    uncertainty_ratios : np.ndarray
         Median uncertainty ratio (degraded / baseline) per noise level
 
-    n_select:
+    n_select : int
         How many levels to select
 
-    deviation_threshold:
+    deviation_threshold : float
         Minimum ``|ratio - 1|`` that counts as interesting
 
     Returns
     -------
-    Selected noise levels, ascending; if no level crosses the
-    threshold, the ``n_select`` levels with the largest deviations
+    np.ndarray
+        Selected noise levels, ascending; if no level crosses the
+        threshold, the ``n_select`` levels with the largest deviations
     """
     noise_levels = np.asarray(noise_levels, dtype=float)
     uncertainty_ratios = np.asarray(uncertainty_ratios, dtype=float)
@@ -350,18 +356,72 @@ def select_interesting_noise_levels(
     return noise_levels[start : start + n_select]
 
 
+@dataclass
+class EstimatorSpec:
+    """What every case in a study trains and estimates with
+
+    These five travel together through the whole study: the study hands
+    them to ``train_test_uncertainty`` unchanged, once per case.
+
+    Attributes
+    ----------
+    informer_class : type
+        RAIL informer, e.g. ``KNearNeighInformer``
+
+    estimator_class : type
+        RAIL estimator, e.g. ``KNearNeighEstimator``
+
+    z_grid : np.ndarray
+        Redshift grid for PDF evaluation
+
+    informer_kwargs : dict | None
+        Parameters for the informer stage
+
+    estimator_kwargs : dict | None
+        Parameters for the estimator stage
+    """
+
+    informer_class: type
+    estimator_class: type
+    z_grid: np.ndarray
+    informer_kwargs: dict | None = None
+    estimator_kwargs: dict | None = None
+
+
+@dataclass
+class DegradationPlan:
+    """Which degradations a study runs, and with what parameters
+
+    Attributes
+    ----------
+    degradation_types : tuple[str, ...]
+        Which degradation cases to run (baseline always runs)
+
+    noise_grid : np.ndarray | None
+        Noise levels for the magnitude cases; default
+        ``np.logspace(-4, 0, 17)`` as in the notebook
+
+    degradation_params : dict | None
+        Optional per-case parameter overrides, e.g.
+        ``{'redshift_break': {'frac': 0.02, 'mag_cutoff': 23.5}}``
+
+    seed : int | None
+        Base random seed; each degradation call gets its own child seed
+        so runs are reproducible but cases stay decorrelated.  None
+        (default) keeps the notebook's nondeterministic behavior
+    """
+
+    degradation_types: tuple[str, ...] = DEFAULT_DEGRADATION_TYPES
+    noise_grid: np.ndarray | None = None
+    degradation_params: dict | None = None
+    seed: int | None = None
+
+
 def run_degradation_study(
     train: Tablelike,
     test: Tablelike,
-    z_grid: np.ndarray,
-    informer_class,
-    estimator_class,
-    informer_kwargs: dict | None = None,
-    estimator_kwargs: dict | None = None,
-    degradation_types: tuple[str, ...] = DEFAULT_DEGRADATION_TYPES,
-    noise_grid: np.ndarray | None = None,
-    degradation_params: dict | None = None,
-    seed: int | None = None,
+    spec: EstimatorSpec,
+    plan: DegradationPlan | None = None,
     output_dir: str = "",
 ) -> tuple[dict, dict, dict]:
     """Run the full degradation study: baseline plus each degradation case
@@ -374,57 +434,37 @@ def run_degradation_study(
 
     Parameters
     ----------
-    train:
+    train : Tablelike
         Training data (dict from ``tables_io.read``)
 
-    test:
+    test : Tablelike
         Test data (dict from ``tables_io.read``)
 
-    z_grid:
-        Redshift grid for PDF evaluation
+    spec : EstimatorSpec
+        The stages, grid and stage options every case trains with
 
-    informer_class:
-        RAIL informer, e.g. ``KNearNeighInformer``
+    plan : DegradationPlan | None
+        Which degradations to run and with what parameters; default
+        runs ``DEFAULT_DEGRADATION_TYPES`` on the notebook's noise grid
 
-    estimator_class:
-        RAIL estimator, e.g. ``KNearNeighEstimator``
-
-    informer_kwargs:
-        Parameters for the informer stage
-
-    estimator_kwargs:
-        Parameters for the estimator stage
-
-    degradation_types:
-        Which degradation cases to run (baseline always runs)
-
-    noise_grid:
-        Noise levels for the magnitude cases; default
-        ``np.logspace(-4, 0, 17)`` as in the notebook
-
-    degradation_params:
-        Optional per-case parameter overrides, e.g.
-        ``{'redshift_break': {'frac': 0.02, 'mag_cutoff': 23.5}}``
-
-    seed:
-        Base random seed; each degradation call gets its own child
-        seed so runs are reproducible but cases stay decorrelated.
-        None (default) keeps the notebook's nondeterministic behavior
-
-    output_dir:
+    output_dir : str
         Directory for the per-case model and estimate files; default
         is the working directory, as in the notebook
 
     Returns
     -------
-    estimates, uncertainties, metadata dicts keyed by case name, with
-    the 'magnitude_uniform' entries nested dicts keyed by noise level
-    (the notebook's structure, which downstream plotting depends on),
-    plus 'baseline' in estimates and uncertainties
+    tuple[dict, dict, dict]
+        estimates, uncertainties, metadata dicts keyed by case name, with
+        the 'magnitude_uniform' entries nested dicts keyed by noise level
+        (the notebook's structure, which downstream plotting depends on),
+        plus 'baseline' in estimates and uncertainties
     """
+    plan = plan or DegradationPlan()
+    degradation_types = plan.degradation_types
+    noise_grid = plan.noise_grid
     if noise_grid is None:
         noise_grid = np.logspace(-4, 0, 17)
-    degradation_params = dict(degradation_params or {})
+    degradation_params = dict(plan.degradation_params or {})
     unknown_types = set(degradation_types) - set(raruma_degrade.DEGRADATION_FUNCS)
     if unknown_types:
         raise KeyError(
@@ -432,7 +472,7 @@ def run_degradation_study(
             f"Only {sorted(raruma_degrade.DEGRADATION_FUNCS)} are allowed"
         )
 
-    seed_sequence = None if seed is None else np.random.SeedSequence(seed)
+    seed_sequence = None if plan.seed is None else np.random.SeedSequence(plan.seed)
 
     def next_seed() -> int | None:
         if seed_sequence is None:
@@ -443,11 +483,11 @@ def run_degradation_study(
         return train_test_uncertainty(
             train_data,
             test_data,
-            z_grid,
-            informer_class,
-            estimator_class,
-            informer_kwargs=informer_kwargs,
-            estimator_kwargs=estimator_kwargs,
+            spec.z_grid,
+            spec.informer_class,
+            spec.estimator_class,
+            informer_kwargs=spec.informer_kwargs,
+            estimator_kwargs=spec.estimator_kwargs,
             label=os.path.join(output_dir, label),
         )
 

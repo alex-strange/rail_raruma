@@ -11,13 +11,16 @@ Also provides the systematic plot-file naming convention used by the
 ``raruma`` command line:  ``{plot_type}_{param_name}_{param_value}.png``,
 for example ``residuals_noise_0.05.png``.
 
-The three functions here that replicate the rows of Fig. 9 of
-SITCOMTN-154 (Charles et al., https://sitcomtn-154.lsst.io) take a
-``use_rail_plotters`` toggle.  Left True (the default) each delegates to
-the official RAIL plotter that drew that row of the technote's figure;
-set False it draws the library's own version.  The plotters are from
-``rail.plotting.pz_plotters`` in rail_projects, the framework the
-technote names as its own plotting and bookkeeping software:
+The rows of Fig. 9 of SITCOMTN-154 (Charles et al.,
+https://sitcomtn-154.lsst.io) come as pairs of functions: ``plot_*``
+draws the library's own version of that row, and the matching
+``plot_*_rail`` returns the figure of the official RAIL plotter that
+drew it.  Each takes only the arguments it honors, so the ``_rail``
+functions, whose plotters draw their own titles and pick their own
+statistics, take no ``title``, ``show_contours`` or ``use_rail_stats``.
+The plotters are from ``rail.plotting.pz_plotters`` in rail_projects,
+the framework the technote names as its own plotting and bookkeeping
+software:
 ``PZPlotterPointEstimateVsTrueHist2D`` (its
 ``zestimate_v_ztrue_hist2d_*.png`` files, top row),
 ``PZPlotterBiweightStatsVsRedshift`` (``biweight_stats_v_redshift_*.png``,
@@ -38,6 +41,12 @@ DEFAULT_PLOT_NAME_TEMPLATE = "{plot_type}_{param_name}_{param_value}.png"
 # Fractions of the data mass the density contours enclose: the
 # 2D-Gaussian equivalents of 1 and 2 sigma regions
 DEFAULT_MASS_FRACTIONS = (0.68, 0.95)
+
+# Magnitude range of the residual plots, the notebook's own i-band range
+DEFAULT_MAG_LIMITS = (18.0, 25.0)
+
+# Contour styling used unless the caller overrides it
+DEFAULT_CONTOUR_STYLE = dict(colors="black", linewidths=1.0)
 
 # The official plotters share one input dataset, which validates a
 # magnitude field even for the two plots that never read one; an empty
@@ -107,13 +116,14 @@ def format_param_value(param_value: object) -> str:
 
     Parameters
     ----------
-    param_value:
+    param_value : object
         Value to format; floats are shortened to 4 significant digits
         so noise levels like 0.01778279410038923 stay readable
 
     Returns
     -------
-    String form of the value
+    str
+        String form of the value
     """
     if isinstance(param_value, float):
         return f"{param_value:.4g}"
@@ -130,22 +140,23 @@ def plot_filename(
 
     Parameters
     ----------
-    plot_type:
+    plot_type : str
         Kind of plot, e.g. 'residuals' or 'statistics'
 
-    param_name:
+    param_name : str
         Name of the varied parameter, e.g. 'noise' or 'degradation'
 
-    param_value:
+    param_value : object
         Value of the varied parameter, e.g. 0.05 or 'magnitude_mixed'
 
-    template:
+    template : str
         Naming template with {plot_type}, {param_name}, {param_value}
         placeholders
 
     Returns
     -------
-    File name, e.g. 'residuals_noise_0.05.png'
+    str
+        File name, e.g. 'residuals_noise_0.05.png'
     """
     return template.format(
         plot_type=plot_type,
@@ -182,37 +193,35 @@ def overlay_density_contours(
     y_vals: np.ndarray,
     mass_fractions: tuple = DEFAULT_MASS_FRACTIONS,
     n_bins: int = 50,
-    color: str = "black",
-    linewidths: float = 1.0,
+    **contour_kwargs: object,
 ) -> QuadContourSet:
     """Overlay contours showing where the bulk of the data lies
 
     Parameters
     ----------
-    axes:
+    axes : plt.Axes
         Matplotlib axes to draw on
 
-    x_vals:
+    x_vals : np.ndarray
         Horizontal values; non-finite entries are ignored
 
-    y_vals:
+    y_vals : np.ndarray
         Vertical values; non-finite entries are ignored
 
-    mass_fractions:
+    mass_fractions : tuple
         Fractions of the (finite) data each contour encloses
 
-    n_bins:
+    n_bins : int
         Number of histogram bins per axis used to estimate the density
 
-    color:
-        Contour line color
-
-    linewidths:
-        Contour line width
+    **contour_kwargs : object
+        Styling passed straight to ``axes.contour``, e.g.
+        ``colors='white'``; defaults to ``DEFAULT_CONTOUR_STYLE``
 
     Returns
     -------
-    The drawn contour set
+    QuadContourSet
+        The drawn contour set
     """
     x_flat = np.asarray(x_vals).ravel()
     y_flat = np.asarray(y_vals).ravel()
@@ -232,8 +241,44 @@ def overlay_density_contours(
         y_centers,
         hist.T,
         levels=levels,
-        colors=color,
-        linewidths=linewidths,
+        **{**DEFAULT_CONTOUR_STYLE, **contour_kwargs},
+    )
+
+
+def plot_true_vs_estimated_rail(
+    z_true: np.ndarray,
+    z_est: np.ndarray,
+    z_max: float = 3.0,
+) -> Figure:
+    """Draw the official top row of SITCOMTN-154 Fig. 9
+
+    Returns RAIL's ``PZPlotterPointEstimateVsTrueHist2D`` figure
+    untouched.  That plotter draws its own labels and its own statistics
+    legend, so it takes no title and no contour option.
+
+    Parameters
+    ----------
+    z_true : np.ndarray
+        True (spectroscopic) redshifts
+
+    z_est : np.ndarray
+        Estimated redshifts
+
+    z_max : float
+        Upper edge of both axes, which also sets the plotter's binning
+
+    Returns
+    -------
+    Figure
+        The figure the official plotter drew
+    """
+    return _rail_plotter_figure(
+        pz_plotters.PZPlotterPointEstimateVsTrueHist2D,
+        "zestimate_v_ztrue_hist2d",
+        dict(z_max=z_max),
+        truth=np.asarray(z_true).ravel(),
+        pointEstimate=np.asarray(z_est).ravel(),
+        magnitude=_NO_MAGNITUDES,
     )
 
 
@@ -243,50 +288,36 @@ def plot_true_vs_estimated(
     title: str = "",
     z_max: float = 3.0,
     show_contours: bool = True,
-    use_rail_plotters: bool = True,
 ) -> Figure:
     """Plot estimated versus true redshift as a 2D histogram
 
+    The library's own version of the top row of SITCOMTN-154 Fig. 9;
+    ``plot_true_vs_estimated_rail`` draws the official one.
+
     Parameters
     ----------
-    z_true:
+    z_true : np.ndarray
         True (spectroscopic) redshifts
 
-    z_est:
+    z_est : np.ndarray
         Estimated redshifts
 
-    title:
+    title : str
         Plot title
 
-    z_max:
-        Upper edge of both axes
+    z_max : float
+        Upper edge of both axes, which also sets the histogram bin edges
 
-    show_contours:
+    show_contours : bool
         Overlay bulk-of-data density contours
-
-    use_rail_plotters:
-        Draw the official version of this panel, the top row of
-        SITCOMTN-154 Fig. 9, with RAIL's
-        ``PZPlotterPointEstimateVsTrueHist2D``; the default, set False
-        for the library's own.  That plotter draws its own labels and
-        its own statistics legend, so the title and contour options do
-        not apply to it
 
     Returns
     -------
-    Figure with the requested plot
+    Figure
+        Figure with the requested plot
     """
     z_true_flat = np.asarray(z_true).ravel()
     z_est_flat = np.asarray(z_est).ravel()
-    if use_rail_plotters:
-        return _rail_plotter_figure(
-            pz_plotters.PZPlotterPointEstimateVsTrueHist2D,
-            "zestimate_v_ztrue_hist2d",
-            dict(z_max=z_max),
-            truth=z_true_flat,
-            pointEstimate=z_est_flat,
-            magnitude=_NO_MAGNITUDES,
-        )
 
     figure, axes = plt.subplots(figsize=(8, 6))
     bin_edges = np.linspace(0.0, z_max, 101)
@@ -296,7 +327,7 @@ def plot_true_vs_estimated(
     axes.plot(z_range, z_range + 0.1, "r--", linewidth=1)
     axes.plot(z_range, z_range - 0.1, "r--", linewidth=1)
     if show_contours:
-        overlay_density_contours(axes, z_true_flat, z_est_flat, color="white")
+        overlay_density_contours(axes, z_true_flat, z_est_flat, colors="white")
     figure.colorbar(histogram[3], ax=axes, label="Density")
     axes.set_xlabel("True Redshift")
     axes.set_ylabel("Estimated Redshift")
@@ -305,58 +336,83 @@ def plot_true_vs_estimated(
     return figure
 
 
+def plot_statistics_vs_redshift_rail(
+    z_spec: np.ndarray,
+    z_phot: np.ndarray,
+    z_bins: np.ndarray | None = None,
+) -> Figure:
+    """Draw the official middle row of SITCOMTN-154 Fig. 9
+
+    Returns RAIL's ``PZPlotterBiweightStatsVsRedshift`` figure untouched.
+    That plotter draws its own labels and always uses the robust
+    biweight statistics, so it takes no title and no statistics mode.
+
+    Parameters
+    ----------
+    z_spec : np.ndarray
+        Spectroscopic (true) redshifts
+
+    z_phot : np.ndarray
+        Estimated redshifts
+
+    z_bins : np.ndarray | None
+        Bin edges, which must be evenly spaced; default
+        ``np.linspace(0, 3, 15)`` as in the notebook
+
+    Returns
+    -------
+    Figure
+        The figure the official plotter drew
+    """
+    if z_bins is None:
+        z_bins = np.linspace(0.0, 3.0, 15)
+    return _rail_plotter_figure(
+        pz_plotters.PZPlotterBiweightStatsVsRedshift,
+        "biweight_stats_v_redshift",
+        _rail_redshift_binning(z_bins),
+        truth=np.asarray(z_spec).ravel(),
+        pointEstimate=np.asarray(z_phot).ravel(),
+        magnitude=_NO_MAGNITUDES,
+    )
+
+
 def plot_statistics_vs_redshift(
     z_spec: np.ndarray,
     z_phot: np.ndarray,
     z_bins: np.ndarray | None = None,
     use_rail_stats: bool = True,
     title: str = "",
-    use_rail_plotters: bool = True,
 ) -> Figure:
     """Plot bias, scatter, and outlier rate binned by redshift
 
+    The library's own version of the middle row of SITCOMTN-154 Fig. 9;
+    ``plot_statistics_vs_redshift_rail`` draws the official one.
+
     Parameters
     ----------
-    z_spec:
+    z_spec : np.ndarray
         Spectroscopic (true) redshifts
 
-    z_phot:
+    z_phot : np.ndarray
         Estimated redshifts
 
-    z_bins:
+    z_bins : np.ndarray | None
         Bin edges; default ``np.linspace(0, 3, 15)`` as in the notebook
 
-    use_rail_stats:
+    use_rail_stats : bool
         Statistics mode, see
         ``uncertainty_functions.calc_binned_metrics``
 
-    title:
+    title : str
         Plot title
-
-    use_rail_plotters:
-        Draw the official version of this panel, the middle row of
-        SITCOMTN-154 Fig. 9, with RAIL's
-        ``PZPlotterBiweightStatsVsRedshift``; the default, set False for
-        the library's own.  That plotter draws its own labels and always
-        uses the robust biweight statistics, so the title and
-        statistics-mode options do not apply to it, and it needs evenly
-        spaced ``z_bins``
 
     Returns
     -------
-    Figure with the requested plot
+    Figure
+        Figure with the requested plot
     """
     if z_bins is None:
         z_bins = np.linspace(0.0, 3.0, 15)
-    if use_rail_plotters:
-        return _rail_plotter_figure(
-            pz_plotters.PZPlotterBiweightStatsVsRedshift,
-            "biweight_stats_v_redshift",
-            _rail_redshift_binning(z_bins),
-            truth=np.asarray(z_spec).ravel(),
-            pointEstimate=np.asarray(z_phot).ravel(),
-            magnitude=_NO_MAGNITUDES,
-        )
 
     bin_centers, sigma, bias, outlier_rate = raruma_unc.calc_binned_metrics(
         np.asarray(z_spec).ravel(),
@@ -377,60 +433,89 @@ def plot_statistics_vs_redshift(
     return figure
 
 
+def plot_residuals_vs_magnitude_rail(
+    magnitudes: np.ndarray,
+    z_true: np.ndarray,
+    z_est: np.ndarray,
+    mag_limits: tuple = DEFAULT_MAG_LIMITS,
+) -> Figure:
+    """Draw the official bottom row of SITCOMTN-154 Fig. 9
+
+    Returns RAIL's ``PZPlotterBiweightStatsVsMag`` figure untouched.
+    That plotter adds the binned performance metrics above the residuals
+    and draws its own labels, so it takes no title and no contour
+    option.  It keeps ``mag_limits`` because the range sets its bins,
+    which no caller can change after the figure is drawn.
+
+    Parameters
+    ----------
+    magnitudes : np.ndarray
+        Reference (i-band) magnitudes of the test galaxies
+
+    z_true : np.ndarray
+        True (spectroscopic) redshifts
+
+    z_est : np.ndarray
+        Estimated redshifts
+
+    mag_limits : tuple
+        Magnitude range the plotter bins over
+
+    Returns
+    -------
+    Figure
+        The figure the official plotter drew
+    """
+    return _rail_plotter_figure(
+        pz_plotters.PZPlotterBiweightStatsVsMag,
+        "biweight_stats_v_magnitude",
+        dict(mag_min=mag_limits[0], mag_max=mag_limits[1]),
+        truth=np.asarray(z_true).ravel(),
+        pointEstimate=np.asarray(z_est).ravel(),
+        magnitude=np.asarray(magnitudes).ravel(),
+    )
+
+
 def plot_residuals_vs_magnitude(
     magnitudes: np.ndarray,
     z_true: np.ndarray,
     z_est: np.ndarray,
     title: str = "",
-    mag_limits: tuple = (18.0, 25.0),
     show_contours: bool = True,
-    use_rail_plotters: bool = True,
 ) -> Figure:
     """Plot normalized redshift residuals against magnitude
 
+    The library's own version of the bottom row of SITCOMTN-154 Fig. 9;
+    ``plot_residuals_vs_magnitude_rail`` draws the official one.  The
+    horizontal range is ``DEFAULT_MAG_LIMITS``: unlike the contours and
+    the title, an axis limit is a caller's to change on the returned
+    figure, so it is not a parameter here.
+
     Parameters
     ----------
-    magnitudes:
+    magnitudes : np.ndarray
         Reference (i-band) magnitudes of the test galaxies
 
-    z_true:
+    z_true : np.ndarray
         True (spectroscopic) redshifts
 
-    z_est:
+    z_est : np.ndarray
         Estimated redshifts
 
-    title:
+    title : str
         Plot title
 
-    mag_limits:
-        Horizontal axis range
-
-    show_contours:
+    show_contours : bool
         Overlay bulk-of-data density contours
-
-    use_rail_plotters:
-        Draw the official version of this panel, the bottom row of
-        SITCOMTN-154 Fig. 9, with RAIL's ``PZPlotterBiweightStatsVsMag``;
-        the default, set False for the library's own.  That plotter adds
-        the binned performance metrics above the residuals and draws its
-        own labels, so the title and contour options do not apply to it
 
     Returns
     -------
-    Figure with the requested plot
+    Figure
+        Figure with the requested plot
     """
     magnitudes_flat = np.asarray(magnitudes).ravel()
     z_true_flat = np.asarray(z_true).ravel()
     z_est_flat = np.asarray(z_est).ravel()
-    if use_rail_plotters:
-        return _rail_plotter_figure(
-            pz_plotters.PZPlotterBiweightStatsVsMag,
-            "biweight_stats_v_magnitude",
-            dict(mag_min=mag_limits[0], mag_max=mag_limits[1]),
-            truth=z_true_flat,
-            pointEstimate=z_est_flat,
-            magnitude=magnitudes_flat,
-        )
 
     delta_z = (z_est_flat - z_true_flat) / (1 + z_true_flat)
 
@@ -438,10 +523,10 @@ def plot_residuals_vs_magnitude(
     axes.scatter(magnitudes_flat, delta_z, alpha=0.5, s=5)
     axes.axhline(y=0, color="black", linestyle="--", linewidth=1)
     if show_contours:
-        overlay_density_contours(axes, magnitudes_flat, delta_z, color="red")
+        overlay_density_contours(axes, magnitudes_flat, delta_z, colors="red")
     axes.set_xlabel(r"$i$-band magnitude")
     axes.set_ylabel(r"$(z_{\mathrm{est}} - z_{\mathrm{true}}) \, / \, (1 + z_{\mathrm{true}})$")
-    axes.set_xlim(*mag_limits)
+    axes.set_xlim(*DEFAULT_MAG_LIMITS)
     axes.grid(True, alpha=0.3)
     axes.set_title(title)
     figure.tight_layout()
@@ -458,23 +543,24 @@ def plot_uncertainty_ratio_vs_noise(
 
     Parameters
     ----------
-    noise_levels:
+    noise_levels : np.ndarray
         Noise levels, one per trained model
 
-    uncertainty_ratios:
+    uncertainty_ratios : np.ndarray
         Median uncertainty ratio (degraded / baseline) per noise level
 
-    selected_levels:
+    selected_levels : np.ndarray | None
         Noise levels picked as interesting (marked with vertical
         lines), e.g. from
         ``uncertainty_functions.select_interesting_noise_levels``
 
-    title:
+    title : str
         Plot title
 
     Returns
     -------
-    Figure with the requested plot
+    Figure
+        Figure with the requested plot
     """
     figure, axes = plt.subplots(figsize=(10, 6))
     axes.plot(noise_levels, uncertainty_ratios, "o-", color="blue", linewidth=2, markersize=6)

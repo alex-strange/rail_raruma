@@ -53,4 +53,4 @@ def study_group() -> None:
 @options.ref_band()
 def run(**kwargs: Any) -> int:
     """Run a degradation study from the command line and save all plots"""
-    return scripts.run_study(**kwargs)
+    return scripts.run_study(scripts.StudySettings.from_cli(**kwargs))

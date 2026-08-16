@@ -3,10 +3,9 @@
 Test strategy (subdomains): the naming convention against the exact
 examples in the packaging spec; float formatting; contour overlays on
 clean, NaN-bearing, and too-small inputs plus a mass-fraction sanity
-check on a known Gaussian; each figure function returning a Figure with
-the toggle left at its default (the official SITCOMTN-154 Fig. 9
-plotters), checked against a feature only that drawing has, and again
-with the toggle turned off (the library's own drawing); and the
+check on a known Gaussian; each library figure function returning a
+Figure; each official SITCOMTN-154 Fig. 9 plotter (the ``_rail`` half
+of each pair) checked against a feature only that drawing has; and the
 uneven-bin input the official redshift plotter cannot draw.
 """
 
@@ -116,57 +115,58 @@ def fixture_redshift_sample() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 def test_plot_true_vs_estimated(redshift_sample) -> None:
     z_true, z_est, _mags = redshift_sample
-    figure = uncertainty_plotting.plot_true_vs_estimated(
-        z_true, z_est, title="Baseline", use_rail_plotters=False
-    )
+    figure = uncertainty_plotting.plot_true_vs_estimated(z_true, z_est, title="Baseline")
     assert isinstance(figure, Figure)
+    # The library drawing honors the title it was given
+    assert figure.axes[0].get_title() == "Baseline"
 
 
 def test_plot_statistics_vs_redshift_both_modes(redshift_sample) -> None:
     z_true, z_est, _mags = redshift_sample
     for use_rail_stats in (True, False):
         figure = uncertainty_plotting.plot_statistics_vs_redshift(
-            z_true, z_est, use_rail_stats=use_rail_stats, use_rail_plotters=False
+            z_true, z_est, use_rail_stats=use_rail_stats, title="Statistics"
         )
         assert isinstance(figure, Figure)
+        assert figure.axes[0].get_title() == "Statistics"
 
 
 def test_plot_residuals_vs_magnitude(redshift_sample) -> None:
     z_true, z_est, magnitudes = redshift_sample
     figure = uncertainty_plotting.plot_residuals_vs_magnitude(
-        magnitudes, z_true, z_est, title="Residuals", use_rail_plotters=False
+        magnitudes, z_true, z_est, title="Residuals"
     )
     assert isinstance(figure, Figure)
+    assert figure.axes[0].get_title() == "Residuals"
 
 
-def test_plot_true_vs_estimated_rail_plotters(redshift_sample) -> None:
-    # No toggle argument: this and the three below pin the default
+def test_plot_true_vs_estimated_rail(redshift_sample) -> None:
     z_true, z_est, _mags = redshift_sample
-    figure = uncertainty_plotting.plot_true_vs_estimated(z_true, z_est)
+    figure = uncertainty_plotting.plot_true_vs_estimated_rail(z_true, z_est)
     assert isinstance(figure, Figure)
     # The official plotter reports its dz statistics in a legend, ours does not
     assert figure.axes[0].get_legend() is not None
 
 
-def test_plot_statistics_vs_redshift_rail_plotters(redshift_sample) -> None:
+def test_plot_statistics_vs_redshift_rail(redshift_sample) -> None:
     z_true, z_est, _mags = redshift_sample
-    figure = uncertainty_plotting.plot_statistics_vs_redshift(z_true, z_est)
+    figure = uncertainty_plotting.plot_statistics_vs_redshift_rail(z_true, z_est)
     assert isinstance(figure, Figure)
     # The official plotter stacks the metrics over a residual map, ours is one panel
     assert len(figure.axes) == 2
 
 
-def test_plot_statistics_vs_redshift_rail_plotters_rejects_uneven_bins(redshift_sample) -> None:
+def test_plot_statistics_vs_redshift_rail_rejects_uneven_bins(redshift_sample) -> None:
     z_true, z_est, _mags = redshift_sample
     with pytest.raises(ValueError, match="evenly spaced"):
-        uncertainty_plotting.plot_statistics_vs_redshift(
+        uncertainty_plotting.plot_statistics_vs_redshift_rail(
             z_true, z_est, z_bins=np.array([0.0, 0.5, 2.0, 3.0])
         )
 
 
-def test_plot_residuals_vs_magnitude_rail_plotters(redshift_sample) -> None:
+def test_plot_residuals_vs_magnitude_rail(redshift_sample) -> None:
     z_true, z_est, magnitudes = redshift_sample
-    figure = uncertainty_plotting.plot_residuals_vs_magnitude(magnitudes, z_true, z_est)
+    figure = uncertainty_plotting.plot_residuals_vs_magnitude_rail(magnitudes, z_true, z_est)
     assert isinstance(figure, Figure)
     # The official plotter stacks the metrics over the residual map, ours is one panel
     assert len(figure.axes) == 2
